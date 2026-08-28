@@ -1,0 +1,32 @@
+# Environment variables (SECURITY - DO NOT REMOVE)
+.env
+.env.real
+.env.paper
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Logs & PID
+logs/
+*.log
+trader.pid
+
+# Data & Cache
+data/
+.pytest_cache/
+scratch/
+*.tmp
+*.txt
+nf_*.json
+trader.pid
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db

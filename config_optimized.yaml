@@ -1,0 +1,126 @@
+ai:
+  context_trades: 5
+  enabled: true
+  endpoint: http://127.0.0.1:1234/v1
+  model: google/gemma-4-e4b:2
+  temperature: 0.1
+cost:
+  commission_pct: 0.015
+  slippage_pct: 0.05
+  tax_pct: 0.2
+execution:
+  confirm_fill: true
+  fill_wait_sec: 2.0
+  force_close_slices: 3
+  force_close_start: '15:08'
+  order_type: '00'
+  slippage_bps: 5
+  stop_order_type: '01'
+logging:
+  journal_dir: data/journal
+  level: INFO
+  log_dir: logs
+  state_file: data/state.json
+orb:
+  candle_minutes: 1
+  end_time: 09:30
+  start_time: 09:00
+polling:
+  holding_interval_sec: 1
+  max_req_per_sec: 8
+  price_interval_sec: 3
+risk:
+  consecutive_loss_limit: 3
+  daily_loss_limit_pct: 2.0
+  default_capital: 10000000
+  max_concurrent: 2
+  max_daily_trades: 1
+  max_position_pct: 30.0
+  max_trades_per_symbol: 2
+  min_order_amount: 1000
+  monthly_loss_limit_pct: 10.0
+  reentry_cooldown_min: 30
+  risk_per_trade_pct: 1.5
+scale_in:
+  add1_size_ratio: 0.5
+  add1_trigger_r: 1.0
+  add2_size_ratio: 0.25
+  add2_trigger_r: 2.0
+  avg_down_enabled: false
+  avg_down_max: 1
+  avg_down_require_support: true
+  avg_down_size_ratio: 0.5
+  avg_down_trigger_r: -0.5
+  enabled: true
+  max_adds: 2
+  min_interval_sec: 60
+  min_score: 3
+  recalc_stop: true
+  require_ma_aligned: true
+  require_vwap_above: true
+  reset_tp: true
+stop_loss:
+  atr_multiplier: 2.0
+  atr_period: 14
+  breakeven_after_tp1: true
+  market_panic_deferral: true
+  mode: atr
+  panic_volume_ratio: 2.0
+  rsi_panic_threshold: 25.0
+  sl_pct: 1.5
+  sl_pct_max: 2.5
+  sl_pct_min: 1.5
+  trailing_arm_r: 1.0
+  trailing_ma_exit: false
+  trailing_pct: 1.5
+  trailing_r: 0.8
+  vwap_stop: false
+  vwap_stop_confirm_bars: 1
+strategy:
+  entry_timing_mode: both
+  exit_on_dead_cross: false
+  exit_on_ma20_turn_down: false
+  ma_long: 20
+  ma_long_term: 120
+  ma_mid: 60
+  ma_short: 5
+  max_chase_pct: 2.0
+  max_disparity_pct: 110.0
+  min_dip_from_high_pct: 3.0
+  min_disparity_pct: 98.0
+  min_score: 5
+  pullback_ma5_pct: 0.5
+  pullback_vwap_pct: 1.0
+  require_orb_breakout: false
+  require_pullback: true
+  require_uptrend: true
+  require_vol_decrease_pullback: true
+  require_vwap_above: false
+  rescreen_empty_min: 3
+  rescreen_golden_min: 5
+  rescreen_interval_min: 15
+  trading_end: '15:00'
+  trading_start: 09:30
+  volume_multiplier: 1.5
+take_profit:
+  include_cost_in_r: true
+  mode: r_multiple
+  tp1_pct: 1.8
+  tp1_r: 2.0
+  tp1_size: 0.33
+  tp2_pct: 3.4
+  tp2_r: 3.5
+  tp2_size: 0.33
+  tp3_pct: 0
+universe:
+  max_change_pct: 4.5
+  max_market_cap_bil: 100000
+  max_price: 500000
+  max_spread_pct: 0.3
+  max_symbols: 5
+  min_change_pct: -3.0
+  min_market_cap_bil: 1000
+  min_price: 2000
+  min_turnover_bil: 50
+  rank_pool: 40
+  require_daily_uptrend: true
