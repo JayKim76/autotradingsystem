@@ -1,0 +1,7 @@
+# 진단용 override — 진입 신호 자체의 우위만 격리해서 측정한다.
+# 스케일인(피라미딩 추매 + 물타기)을 전부 끄면 포지션 크기가 진입 시점으로
+# 고정되므로, R 기대값과 금액 손익의 괴리가 사라진다.
+# 사용법: python scripts/run_walkforward.py --optimize --config-override config_no_scalein.yaml
+scale_in:
+  enabled: false
+  avg_down_enabled: false
