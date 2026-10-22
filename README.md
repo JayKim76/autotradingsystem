@@ -27,6 +27,7 @@ python main.py                  # 실전/모의 (TRADE_MODE로 구분)
 python main.py --config config.yaml --config-override config_optimized.yaml
 python main.py --backtest data/candles   # 백테스트
 python main.py --scenarios               # 시장 국면별 시나리오 검증
+python scripts/run_walkforward.py --optimize   # 실데이터 워크포워드 검증 (백테스트검증가이드.md 참조)
 ```
 
 설정 파일(`config_optimized.yaml` 등)은 전체 복제본이 아니라 기본 설정과의

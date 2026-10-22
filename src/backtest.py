@@ -43,6 +43,8 @@ class BTTrade:
     gross:       float
     cost:        float
     score:       int = 0
+    date:        str = ""      # 거래일 YYYYMMDD (MultiDayBacktester가 주입)
+    r_unit_pct:  float = 0.0   # 진입 시 확정된 1R 크기 % (검증 지표의 R 환산용)
 
     @property
     def net(self) -> float:
@@ -158,6 +160,7 @@ class Backtester:
         self.slippage_bps   = int(config.get("execution", {}).get("slippage_bps", 5))
 
         self.result = BTResult(initial=initial_capital)
+        self.current_date: str = ""   # MultiDayBacktester가 날짜별 실행 시 주입
         self._open: dict[str, tuple[Position, str, int]] = {}   # sym → (pos, entry_time, score)
 
     # ── 실행 ──────────────────────────────────────────────────
@@ -318,6 +321,7 @@ class Backtester:
             symbol=sym, entry_time=entry_time, exit_time=tstr,
             entry_price=entry_price, exit_price=fill, qty=qty,
             reason=reason, gross=gross, cost=cost, score=score,
+            date=self.current_date, r_unit_pct=pos.r_unit_pct,
         ))
 
         if sym not in self.risk.positions:
@@ -436,6 +440,7 @@ class MultiDayBacktester:
                 continue
 
             bt = Backtester(self.config, initial_capital=self.capital)
+            bt.current_date = date_str
             res = bt.run(day_data)
 
             day_pnl = res.net_pnl
