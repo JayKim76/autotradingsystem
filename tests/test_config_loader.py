@@ -42,3 +42,20 @@ def test_repo_optimized_is_diff_only():
     base_only = load_config("config.yaml")
     assert config["strategy"] == base_only["strategy"]
     assert config["ai"]["fail_open_on_error"] is False
+
+
+def test_resolve_repo_path_falls_back_to_repo_root(tmp_path, monkeypatch):
+    """어느 폴더에서 실행해도 config.yaml을 레포 루트에서 찾는다 (scripts/ 실행 회귀 방지)"""
+    from src.config_loader import REPO_ROOT, resolve_repo_path
+    monkeypatch.chdir(tmp_path)
+    assert resolve_repo_path("config.yaml") == REPO_ROOT / "config.yaml"
+    config = load_config("config.yaml")
+    assert "strategy" in config
+
+
+def test_resolve_repo_path_prefers_cwd(tmp_path, monkeypatch):
+    from src.config_loader import resolve_repo_path
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yaml").write_text("marker: 1\n", encoding="utf-8")
+    assert resolve_repo_path("config.yaml").resolve() == (tmp_path / "config.yaml").resolve()
+    assert load_config("config.yaml") == {"marker": 1}

@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
 from src.collector import load_range
-from src.config_loader import load_config
+from src.config_loader import REPO_ROOT, load_config, resolve_repo_path
 from src.validation import render_report, verdict, walk_forward
 
 
@@ -41,10 +41,12 @@ def main() -> int:
     p.add_argument("--out-dir", default="data/validation")
     args = p.parse_args()
 
-    data = load_range(args.data_dir, start=args.start, end=args.end)
+    # scripts/ 안에서 실행해도 data/candles를 찾을 수 있게 경로 보정
+    data_dir = str(resolve_repo_path(args.data_dir))
+    data = load_range(data_dir, start=args.start, end=args.end)
     n_days = len(data)
     n_symbols = len({s for day in data.values() for s in day})
-    print(f"데이터: {n_days}거래일, 종목 {n_symbols}개 ({args.data_dir})")
+    print(f"데이터: {n_days}거래일, 종목 {n_symbols}개 ({data_dir})")
 
     if n_days < args.min_days:
         print(f"판정 불가: 최소 {args.min_days}거래일이 필요한데 {n_days}일뿐입니다. "
@@ -57,16 +59,19 @@ def main() -> int:
         n_folds=args.folds, optimize=args.optimize,
     )
     v = verdict(result["oos_metrics"])
-    report = render_report(result, v, data_dir=args.data_dir)
+    report = render_report(result, v, data_dir=data_dir)
     print(report)
 
     out_dir = Path(args.out_dir)
+    if data_dir != args.data_dir and not out_dir.is_absolute():
+        # 데이터를 레포 루트에서 찾은 경우 리포트도 루트 기준으로 저장
+        out_dir = REPO_ROOT / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     (out_dir / f"report-{stamp}.md").write_text(report, encoding="utf-8")
     payload = {
         "generated_at": stamp,
-        "data_dir": args.data_dir,
+        "data_dir": data_dir,
         "verdict": v,
         "oos_metrics": result["oos_metrics"],
         "folds": [

@@ -28,13 +28,29 @@ def deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def resolve_repo_path(path: str | Path) -> Path:
+    """상대경로가 현재 폴더에 없으면 레포 루트 기준으로 다시 찾는다.
+
+    scripts/ 안에서 실행해도 config.yaml·data/candles를 찾을 수 있게 하는
+    fallback이다. 현재 폴더에 존재하면 그쪽이 항상 우선한다.
+    """
+    p = Path(path)
+    if p.is_absolute() or p.exists():
+        return p
+    alt = REPO_ROOT / p
+    return alt if alt.exists() else p
+
+
 def load_config(path: str = "config.yaml",
                 override_paths: Optional[Iterable[str]] = None) -> dict:
     """기본 YAML을 읽고 override 파일들을 순서대로 병합해 반환"""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(resolve_repo_path(path), "r", encoding="utf-8") as f:
         config = yaml.safe_load(f) or {}
     for override_path in override_paths or []:
-        with open(override_path, "r", encoding="utf-8") as f:
+        with open(resolve_repo_path(override_path), "r", encoding="utf-8") as f:
             override = yaml.safe_load(f) or {}
         config = deep_merge(config, override)
     return config
