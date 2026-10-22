@@ -3,6 +3,7 @@ collect_daily.py — KIS 일봉 장기 수집기 (스윙 전략 검증용)
 
 사용법:
     python scripts/collect_daily.py                       # 기본 유니버스 + 069500, 최근 3년
+    python scripts/collect_daily.py --universe-file universe_kospi200.csv   # KOSPI 200 전체
     python scripts/collect_daily.py --symbols 005930,000660 --years 5
     python scripts/collect_daily.py --status              # 수집 현황만
 
@@ -59,6 +60,7 @@ def fetch_history(client, symbol: str, start: str, end: str):
 def main() -> int:
     p = argparse.ArgumentParser(description="KIS 일봉 장기 수집기")
     p.add_argument("--symbols", help="쉼표 구분 종목코드 (기본: 스크리너 유니버스)")
+    p.add_argument("--universe-file", help="종목코드 목록 파일 (CSV/텍스트, 예: universe_kospi200.csv)")
     p.add_argument("--years", type=int, default=3, help="수집 기간 (년)")
     p.add_argument("--dir", default="data/daily", help="저장 디렉토리")
     p.add_argument("--status", action="store_true", help="수집 현황만 출력")
@@ -84,6 +86,10 @@ def main() -> int:
 
     if args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    elif args.universe_file:
+        from src.collector import load_universe_file
+        symbols = load_universe_file(args.universe_file)
+        print(f"유니버스 파일에서 {len(symbols)}종목 로드: {args.universe_file}")
     else:
         from src.screener import default_universe
         symbols = default_universe()

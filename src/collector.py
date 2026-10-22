@@ -237,6 +237,33 @@ def load_range(
 # ──────────────────────────────────────────────
 #  CLI
 # ──────────────────────────────────────────────
+def load_universe_file(path: str | Path) -> list[str]:
+    """유니버스 파일에서 종목코드 목록을 읽는다.
+
+    지원 형식:
+      - CSV (code 컬럼 또는 첫 컬럼이 6자리 코드, 헤더 유무 무관)
+      - 텍스트 (한 줄에 코드 하나, # 주석 허용)
+    중복은 제거하고 순서는 유지한다.
+    """
+    import csv as _csv
+    import re as _re
+
+    codes: list[str] = []
+    seen: set[str] = set()
+    text = Path(path).read_text(encoding="utf-8-sig")
+    for row in _csv.reader(text.splitlines()):
+        if not row:
+            continue
+        for cell in row:
+            cell = cell.strip()
+            if _re.fullmatch(r"\d{6}", cell):
+                if cell not in seen:
+                    seen.add(cell)
+                    codes.append(cell)
+                break   # 한 행에서 코드는 하나만 취한다
+    return codes
+
+
 def _default_watchlist() -> list[str]:
     from .screener import default_universe
     return default_universe()

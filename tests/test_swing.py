@@ -131,3 +131,21 @@ def test_walk_forward_smoke():
     assert result["oos_metrics"]["trades"] >= 1
     v = verdict(result["oos_metrics"])
     assert v["status"] in ("PASS", "FAIL", "INSUFFICIENT")
+
+
+def test_load_universe_file(tmp_path):
+    from src.collector import load_universe_file
+    f = tmp_path / "u.csv"
+    f.write_text("code,name\n005930,Samsung\n000660,SK Hynix\n005930,dup\n", encoding="utf-8")
+    assert load_universe_file(f) == ["005930", "000660"]
+    t = tmp_path / "u.txt"
+    t.write_text("# comment\n035420\n005380\n", encoding="utf-8")
+    assert load_universe_file(t) == ["035420", "005380"]
+
+
+def test_repo_universe_file_has_about_200_codes():
+    from pathlib import Path
+    from src.collector import load_universe_file
+    codes = load_universe_file(Path(__file__).parent.parent / "universe_kospi200.csv")
+    assert 190 <= len(codes) <= 205
+    assert "005930" in codes and "000660" in codes
