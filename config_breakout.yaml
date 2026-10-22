@@ -1,0 +1,17 @@
+# 돌파형 스윙 전략 설정 (돌파전략설계.md 참조)
+# 비용(수수료·세율·슬리피지)은 config.yaml의 cost/execution 섹션을 그대로 쓴다.
+breakout:
+  breakout_days: 20
+  exit_channel_days: 10
+  volume_mult: 1.5
+  atr_period: 14
+  stop_atr_mult: 2.0
+  max_hold_days: 20
+  risk_pct: 0.75
+  max_position_pct: 25
+  max_positions: 4
+  max_entries_per_day: 2
+  min_avg_value_krw: 5000000000
+  gap_up_limit_pct: 2.0
+  gap_down_limit_pct: 5.0
+  regime_symbol: "069500"

@@ -300,7 +300,7 @@ class SwingBacktester:
             return None                                    # 눌림 없음
         if not (close > s.closes[i - 1]):                   # 반등 확인
             return None
-        return {"atr": atr, "rsi": min(recent_rsi), "prev_close": s.closes[i - 1]}
+        return {"atr": atr, "rsi": min(recent_rsi), "prev_close": s.closes[i]}
 
     def run(self, capital: float = 10_000_000,
             window: Optional[tuple[str, str]] = None) -> dict:
@@ -449,19 +449,21 @@ class SwingBacktester:
 #  워크포워드 검증 (지표·판정은 validation.py 재사용)
 # ──────────────────────────────────────────────
 
-def swing_walk_forward(bars_by_symbol: dict[str, list[DailyBar]], swing: SwingConfig,
+def swing_walk_forward(bars_by_symbol: dict[str, list[DailyBar]], swing,
                        base_config: dict, capital: float = 10_000_000,
                        n_folds: int = 4, warmup_days: int = 60,
-                       fallback_r_pct: float = 3.0) -> dict:
+                       fallback_r_pct: float = 3.0,
+                       backtester_cls=None) -> dict:
     """폴드별 파라미터 최적화는 하지 않는다 (표본이 적어 과적합 위험).
 
     각 폴드는 독립 자본으로 시작하고, 지표는 폴드 거래를 합친 OOS 기준으로 계산한다.
     지표 계산에 필요한 구간 앞부분(warmup_days)은 신호 warmup 전용으로 쓴다.
+    backtester_cls를 주면 다른 일봉 전략(예: 돌파형)도 같은 틀로 검증할 수 있다.
     """
     from .validation import (compute_metrics, max_drawdown_pct_from_equity,
                               split_folds)
 
-    bt = SwingBacktester(bars_by_symbol, swing, base_config)
+    bt = (backtester_cls or SwingBacktester)(bars_by_symbol, swing, base_config)
     all_dates = bt.all_dates
     eligible = all_dates[warmup_days:]
     if len(eligible) < n_folds * 5:
@@ -504,10 +506,11 @@ def swing_walk_forward(bars_by_symbol: dict[str, list[DailyBar]], swing: SwingCo
 
 
 def render_swing_report(result: dict, v: dict, data_dir: str = "",
-                        regime_active: bool = True, capital: float = 10_000_000) -> str:
+                        regime_active: bool = True, capital: float = 10_000_000,
+                        title: str = "일봉 스윙 전략 검증 리포트") -> str:
     m = result["oos_metrics"]
     lines = [
-        "# 일봉 스윙 전략 검증 리포트",
+        f"# {title}",
         "",
         f"- 데이터: {data_dir} — {result['dates'][0] if result['dates'] else '-'} ~ "
         f"{result['dates'][-1] if result['dates'] else '-'}",
