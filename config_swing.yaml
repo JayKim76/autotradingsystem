@@ -1,0 +1,19 @@
+# 일봉 스윙 전략 설정 (스윙전략설계.md 참조)
+# 비용(수수료·세율·슬리피지)은 config.yaml의 cost/execution 섹션을 그대로 쓴다.
+swing:
+  ma_fast: 20
+  ma_slow: 60
+  atr_period: 14
+  rsi_period: 14
+  rsi_pullback: 45
+  pullback_lookback: 3
+  stop_atr_mult: 2.0
+  max_hold_days: 10
+  risk_pct: 0.75
+  max_position_pct: 25
+  max_positions: 4
+  max_entries_per_day: 2
+  min_avg_value_krw: 5000000000
+  gap_up_limit_pct: 2.0
+  gap_down_limit_pct: 5.0
+  regime_symbol: "069500"
