@@ -5,6 +5,12 @@ ai:
   endpoint: http://127.0.0.1:1234/v1
   model: google/gemma-4-e4b:2
   temperature: 0.1
+news_gate:
+  enabled: true
+  block_on_negative: true
+  require_positive: false
+  positive_threshold: 2
+  headlines_limit: 8
 cost:
   commission_pct: 0.015
   slippage_pct: 0.05

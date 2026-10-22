@@ -63,6 +63,8 @@ from src.journal import TradeJournal
 from src.notifier import Notifier
 from src.state import StateStore, reconcile_positions
 from src.ai_agent import LocalAIAgent
+from src.news_fetcher import NewsFetcher
+from src.news_gate import NewsGate
 from src.websocket_client import RealtimePriceFeed
 
 
@@ -127,6 +129,8 @@ class AutoTrader:
         capital = self._fetch_capital()
         self.risk = RiskManager(config, capital)
         self.ai_agent = LocalAIAgent(config)
+        # 종목 선정 직후 실시간 뉴스 게이트 (호재/악재 분류 — src/news_gate.py)
+        self.news_gate = NewsGate(NewsFetcher(cache_ttl_sec=600), config)
 
         self.executor = Executor(
             client=self.client, risk=self.risk, strategy=self.strategy,
@@ -893,6 +897,17 @@ class AutoTrader:
                 self.logger.info("[%s] 눌림목 진입판정: %s @%d (진입=%s)", self.executor._label(sym), score, price, ok)
 
                 if ok:
+                    # 뉴스 게이트: 선정 직후 최신 뉴스를 호재/악재로 분류해 반영
+                    verdict = self.news_gate.evaluate(sym)
+                    allow, news_reason = self.news_gate.allows_entry(verdict)
+                    self.logger.info(
+                        "[%s] 뉴스 게이트: %s (점수 %+d) — %s",
+                        sym, verdict.label, verdict.score, verdict.summary,
+                    )
+                    if not allow:
+                        self.logger.info("[%s] 진입 취소 (뉴스 게이트): %s", sym, news_reason)
+                        continue
+
                     # AI 필터링 (In-Context Learning)
                     recent_trades = self.journal.get_recent_trades(limit=self.ai_agent.context_trades)
                     
