@@ -203,46 +203,18 @@ class Backtester:
                 if hhmm >= self.force_close:
                     self._close(sym, price, tstr, "강제청산", SignalType.EXIT_FORCE)
                 else:
-                    # VWAP 이탈을 '진입 3분 후 봉 종가 확정' 기준으로 판정
-                    vwap_breached = None
-                    n = self.strategy.vwap_confirm_bars
-                    if self.strategy.vwap_stop and n > 0:
-                        try:
-                            e_min = int(pos.entry_time[:2]) * 60 + int(pos.entry_time[2:4])
-                            c_min = int(tstr[:2]) * 60 + int(tstr[2:4])
-                            elapsed_min = c_min - e_min
-                        except Exception:
-                            elapsed_min = 999
-                        if elapsed_min >= 3:
-                            vwap_breached = ind.closed_bars_below_vwap(n)
-                        else:
-                            vwap_breached = False
+                    # 청산 판정 입력 조립은 StrategyEngine.evaluate_exit() 공통 사용
+                    # (실전 Executor와 동일 로직 — 드리프트 방지).
+                    # 경과 시간은 봉 시각 기준 (진입 3분 후부터 VWAP 이탈 판정).
+                    try:
+                        e_min = int(pos.entry_time[:2]) * 60 + int(pos.entry_time[2:4])
+                        c_min = int(tstr[:2]) * 60 + int(tstr[2:4])
+                        elapsed_min = float(c_min - e_min)
+                    except Exception:
+                        elapsed_min = 999.0
 
-                    is_rebound = ind.is_rebound_candle()
-                    closed_below_day_low = ind.closed_bars_below_day_low(1)
-                    day_low = ind.day_low
-                    is_panic_dump = ind.is_panic_dump(price)
-                    rsi_val = ind.rsi_value
-                    closed_below_support = ind.closed_bars_below_ma20(1)
-
-                    signal, reason = self.strategy.check_exit(
-                        entry_price          = pos.entry_price,
-                        current_price        = price,
-                        vwap_value           = ind.vwap.value,
-                        tp1_done             = pos.tp1_done,
-                        tp2_done             = pos.tp2_done,
-                        tp3_armed            = pos.tp3_armed,
-                        ma5_value            = ind.sma_short.value,
-                        peak_price           = pos.peak_price,
-                        stop_pct             = pos.stop_pct or None,
-                        r_unit_pct           = pos.r_unit_pct,
-                        vwap_breached        = vwap_breached,
-                        day_low              = day_low,
-                        is_rebound           = is_rebound,
-                        closed_below_day_low = closed_below_day_low,
-                        rsi_value            = rsi_val,
-                        is_panic_dump        = is_panic_dump,
-                        closed_below_support = closed_below_support,
+                    signal, reason = self.strategy.evaluate_exit(
+                        pos, ind, price, elapsed_min=elapsed_min,
                     )
                     if signal == SignalType.ARM_TP3:
                         pos.tp3_armed = True

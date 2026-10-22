@@ -149,10 +149,17 @@ def main():
 
     if best_scenario:
         print(f"\nBest Performing Scenario: {best_scenario['name']} (Return: {best_scenario['return_pct']:.2f}%, MDD: {best_scenario['mdd']:.2f}%)")
-        # Save optimized config
-        with open("config_optimized.yaml", "w", encoding="utf-8") as f:
-            yaml.dump(best_scenario["config"], f, default_flow_style=False, allow_unicode=True)
-        print("Saved best configuration to config_optimized.yaml")
+        # Save optimized config as an OVERRIDE (diff vs base only).
+        # 전체 복제본으로 저장하면 config.yaml 변경 시 드리프트가 생긴다.
+        from src.config_loader import save_override
+        header = (
+            "# config_optimized.yaml — 최적화 결과 override (optimize_and_report.py 자동 생성)\n"
+            "# config.yaml 전체 복제본이 아니라 차이만 담는다.\n"
+            "# 사용법: python main.py --config config.yaml --config-override config_optimized.yaml\n"
+        )
+        diff = save_override("config_optimized.yaml", base_config,
+                             best_scenario["config"], header=header)
+        print(f"Saved best configuration override ({len(diff)} sections) to config_optimized.yaml")
 
 if __name__ == "__main__":
     main()

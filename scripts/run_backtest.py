@@ -8,9 +8,9 @@ sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
 from src.backtest import MultiDayBacktester, load_candles_csv
 
-def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+def load_config(path: str = "config.yaml", override_paths=None) -> dict:
+    from src.config_loader import load_config as _load
+    return _load(path, override_paths)
 
 def run_backtest_with_config(config: dict, initial_capital: float = 10_000_000) -> MultiDayBacktester:
     base_dir = Path("data/candles")

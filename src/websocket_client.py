@@ -1,13 +1,18 @@
 """
 websocket_client.py — KIS 실시간 체결/호가 WebSocket 클라이언트
-메인 루프는 REST 폴링으로 동작하며, 이 모듈은 선택적 확장용입니다.
+
+메인 루프(AutoTrader)는 RealtimePriceFeed 로 이 모듈을 사용한다.
+피드가 없거나 데이터가 오래되면 REST 폴링으로 자동 대체(fallback)되므로
+WebSocket 장애가 매매를 멈추지는 않는다.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Callable, Any
+import threading
+import time
+from typing import Callable, Any, Optional, Union
 
 import websockets
 
@@ -115,13 +120,42 @@ class KISWebSocket:
             "bid_total": bid_total,
         }
 
+    async def _watch_symbols(self, resolve, on_trade, on_orderbook) -> None:
+        """구독 대상 변경 감시 — 종목이 바뀌면 재연결 없이 구독만 갱신"""
+        while self._running and self._ws is not None:
+            await asyncio.sleep(2)
+            try:
+                desired = set(resolve())
+            except Exception:
+                continue
+            try:
+                for sym in desired - self._subscribed:
+                    if on_trade:
+                        await self._send_subscribe(TR_CCLD, sym)
+                    if on_orderbook:
+                        await self._send_subscribe(TR_ASKP, sym)
+                    self._subscribed.add(sym)
+                for sym in list(self._subscribed - desired):
+                    if on_trade:
+                        await self._send_unsubscribe(TR_CCLD, sym)
+                    if on_orderbook:
+                        await self._send_unsubscribe(TR_ASKP, sym)
+                    self._subscribed.discard(sym)
+            except Exception as e:
+                logger.debug("구독 갱신 실패: %s", e)
+
     async def subscribe(
         self,
-        symbols: list[str],
+        symbols: Union[list[str], Callable[[], list[str]]],
         on_trade: Callable[[dict], None] | None = None,
         on_orderbook: Callable[[dict], None] | None = None,
     ) -> None:
-        """실시간 구독 시작 (비동기 루프, 연결 끊기면 자동 재연결)"""
+        """실시간 구독 시작 (비동기 루프, 연결 끊기면 자동 재연결)
+
+        symbols에 callable을 주면 구독 대상을 주기적으로 다시 읽어
+        추적 종목 변경에 재연결 없이 대응한다.
+        """
+        resolve = symbols if callable(symbols) else (lambda: list(symbols))
         self._running = True
         while self._running:
             try:
@@ -129,39 +163,21 @@ class KISWebSocket:
                     self._ws = ws
                     logger.info("WebSocket 연결: %s", self.ws_url)
 
-                    for sym in symbols:
+                    self._subscribed = set()
+                    for sym in resolve():
                         if on_trade:
                             await self._send_subscribe(TR_CCLD, sym)
                         if on_orderbook:
                             await self._send_subscribe(TR_ASKP, sym)
                         self._subscribed.add(sym)
 
-                    async for message in ws:
-                        if not self._running:
-                            break
-                        if isinstance(message, bytes):
-                            message = message.decode("utf-8")
-
-                        # PINGPONG 처리
-                        if message.startswith("0|") or message.startswith("1|"):
-                            parts = message.split("|")
-                            if len(parts) >= 2:
-                                tr_id = parts[1] if len(parts) > 1 else ""
-                                if tr_id == TR_CCLD and on_trade:
-                                    parsed = self._parse_ccld(message)
-                                    if parsed:
-                                        on_trade(parsed)
-                                elif tr_id == TR_ASKP and on_orderbook:
-                                    parsed = self._parse_askp(message)
-                                    if parsed:
-                                        on_orderbook(parsed)
-                        else:
-                            # JSON 응답 (구독 확인 등)
-                            try:
-                                data = json.loads(message)
-                                logger.debug("WS 응답: %s", data.get("header", {}).get("tr_id"))
-                            except json.JSONDecodeError:
-                                pass
+                    watcher = asyncio.ensure_future(
+                        self._watch_symbols(resolve, on_trade, on_orderbook)
+                    )
+                    try:
+                        await self._consume(ws, on_trade, on_orderbook)
+                    finally:
+                        watcher.cancel()
 
             except (websockets.exceptions.ConnectionClosed, OSError) as e:
                 if self._running:
@@ -170,9 +186,123 @@ class KISWebSocket:
                 else:
                     break
 
+    async def _consume(self, ws, on_trade, on_orderbook) -> None:
+        """수신 메시지 디스패치 루프"""
+        async for message in ws:
+            if not self._running:
+                break
+            if isinstance(message, bytes):
+                message = message.decode("utf-8")
+
+            # 실시간 데이터 (파이프 포맷)
+            if message.startswith("0|") or message.startswith("1|"):
+                parts = message.split("|")
+                if len(parts) >= 2:
+                    tr_id = parts[1]
+                    if tr_id == TR_CCLD and on_trade:
+                        parsed = self._parse_ccld(message)
+                        if parsed:
+                            on_trade(parsed)
+                    elif tr_id == TR_ASKP and on_orderbook:
+                        parsed = self._parse_askp(message)
+                        if parsed:
+                            on_orderbook(parsed)
+            else:
+                # JSON 응답 (구독 확인 등)
+                try:
+                    data = json.loads(message)
+                    logger.debug("WS 응답: %s", data.get("header", {}).get("tr_id"))
+                except json.JSONDecodeError:
+                    pass
+
     def stop(self) -> None:
         """구독 중단"""
         self._running = False
+
+
+class RealtimePriceFeed:
+    """백그라운드 스레드로 실시간 체결/호가를 캐시하는 피드
+
+    메인 루프는 get_price()/get_orderbook_totals()로 최신값을 읽고,
+    없거나 오래됐으면(max_age_sec 초과) None을 받아 REST 폴링으로 대체한다.
+    피드 장애는 예외를 전파하지 않는다 — 매매가 멈추지 않는 쪽이 우선이다.
+    """
+
+    def __init__(self, auth: KISAuth, max_age_sec: float = 10.0) -> None:
+        self._client = KISWebSocket(auth)
+        self.max_age_sec = float(max_age_sec)
+        self._lock = threading.Lock()
+        self._prices: dict[str, tuple[int, float]] = {}        # symbol -> (price, monotonic)
+        self._books: dict[str, tuple[int, int, float]] = {}    # symbol -> (ask, bid, monotonic)
+        self._symbols: set[str] = set()
+        self._thread: Optional[threading.Thread] = None
+
+    # ── 구독 대상 관리 ────────────────────────────────────────
+    def set_symbols(self, symbols) -> None:
+        with self._lock:
+            self._symbols = set(symbols)
+
+    def _desired(self) -> list[str]:
+        with self._lock:
+            return sorted(self._symbols)
+
+    # ── 생명주기 ──────────────────────────────────────────────
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="kis-realtime-feed",
+        )
+        self._thread.start()
+        logger.info("실시간 피드 시작 (max_age=%.0fs)", self.max_age_sec)
+
+    def _run(self) -> None:
+        try:
+            asyncio.run(self._client.subscribe(
+                self._desired,
+                on_trade=self._on_trade,
+                on_orderbook=self._on_orderbook,
+            ))
+        except Exception as e:
+            logger.warning("실시간 피드 종료: %s — REST 폴링으로 대체됩니다", e)
+
+    def stop(self) -> None:
+        self._client.stop()
+
+    # ── 콜백 (WS 스레드에서 호출) ─────────────────────────────
+    def _on_trade(self, d: dict) -> None:
+        symbol = d.get("symbol")
+        price = d.get("price") or 0
+        if symbol and price > 0:
+            with self._lock:
+                self._prices[symbol] = (int(price), time.monotonic())
+
+    def _on_orderbook(self, d: dict) -> None:
+        symbol = d.get("symbol")
+        if symbol:
+            with self._lock:
+                self._books[symbol] = (
+                    int(d.get("ask_total", 0)), int(d.get("bid_total", 0)),
+                    time.monotonic(),
+                )
+
+    # ── 조회 (메인 루프에서 호출) ─────────────────────────────
+    def _fresh(self, ts: float) -> bool:
+        return (time.monotonic() - ts) <= self.max_age_sec
+
+    def get_price(self, symbol: str) -> Optional[int]:
+        with self._lock:
+            item = self._prices.get(symbol)
+        if item and self._fresh(item[1]):
+            return item[0]
+        return None
+
+    def get_orderbook_totals(self, symbol: str) -> Optional[tuple[int, int]]:
+        with self._lock:
+            item = self._books.get(symbol)
+        if item and self._fresh(item[2]):
+            return item[0], item[1]
+        return None
 
 
 # ── 데모 실행 ─────────────────────────────────────────────────

@@ -63,11 +63,13 @@ from src.journal import TradeJournal
 from src.notifier import Notifier
 from src.state import StateStore, reconcile_positions
 from src.ai_agent import LocalAIAgent
+from src.websocket_client import RealtimePriceFeed
 
 
-def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+def load_config(path: str = "config.yaml", override_paths=None) -> dict:
+    """기본 설정 + override 파일 병합 로드 (src/config_loader.py 참조)"""
+    from src.config_loader import load_config as _load
+    return _load(path, override_paths)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -132,6 +134,17 @@ class AutoTrader:
             config=config, dry_run=dry_run, ai_agent=self.ai_agent,
         )
         self.screener = Screener(self.client, config)
+
+        # ── 실시간 시세 피드 (WebSocket) — 실패/지연 시 REST 폴링으로 대체 ──
+        rt_cfg = config.get("realtime", {})
+        self.feed: RealtimePriceFeed | None = None
+        if bool(rt_cfg.get("enabled", True)):
+            try:
+                self.feed = RealtimePriceFeed(
+                    self.auth, max_age_sec=float(rt_cfg.get("max_age_sec", 10)),
+                )
+            except Exception as e:
+                self.logger.warning("실시간 피드 초기화 실패 — REST 폴링만 사용: %s", e)
 
         self.indicators: dict[str, SymbolIndicators] = {}
 
@@ -370,6 +383,21 @@ class AutoTrader:
         return sched
 
     # ── 초기화 ────────────────────────────────────────────────
+    # ── 시세 조회 (실시간 피드 우선, 없으면 REST 폴링) ──────
+    def _last_price(self, symbol: str) -> int:
+        if self.feed is not None:
+            price = self.feed.get_price(symbol)
+            if price:
+                return price
+        return self.client.get_last_price(symbol)
+
+    def _orderbook_totals(self, symbol: str) -> tuple[int, int]:
+        if self.feed is not None:
+            totals = self.feed.get_orderbook_totals(symbol)
+            if totals is not None:
+                return totals
+        return self.client.get_orderbook_totals(symbol)
+
     def _fetch_capital(self) -> float:
         try:
             equity = self.client.get_total_equity()
@@ -473,6 +501,9 @@ class AutoTrader:
         self.logger.info("=" * 56)
         self.notifier.send(f"🤖 자동매매 시작 [{mode}]\n자본: {self.risk.capital:,.0f}원")
 
+        if self.feed is not None:
+            self.feed.start()
+
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
@@ -568,6 +599,10 @@ class AutoTrader:
         # ── 지표 증분 갱신 ────────────────────────────────────
         for sym in list(self.indicators.keys()):
             self._update_candles(sym)
+
+        # ── 실시간 피드 구독 대상 동기화 ──────────────────────
+        if self.feed is not None:
+            self.feed.set_symbols(set(self.indicators) | set(self.risk.positions))
 
         # ── 보유 포지션 청산 판정 (진입보다 항상 우선) ────────
         self._manage_positions()
@@ -741,7 +776,7 @@ class AutoTrader:
                 ind.set_orb_ready()
 
             try:
-                price = self.client.get_last_price(sym)
+                price = self._last_price(sym)
                 if price > 0:
                     self.executor.process_signal(pos, ind, price, is_market_panic=is_market_panic)
             except Exception as e:
@@ -767,11 +802,11 @@ class AutoTrader:
                 continue
 
             try:
-                price = self.client.get_last_price(sym)
+                price = self._last_price(sym)
                 if price <= 0:
                     continue
 
-                ask_total, bid_total = self.client.get_orderbook_totals(sym)
+                ask_total, bid_total = self._orderbook_totals(sym)
 
                 r_unit = pos.r_unit_pct if pos.r_unit_pct > 0 else (pos.stop_pct or self.strategy.sl_pct)
 
@@ -846,11 +881,11 @@ class AutoTrader:
                 continue
 
             try:
-                price = self.client.get_last_price(sym)
+                price = self._last_price(sym)
                 if price <= 0:
                     continue
 
-                ask_total, bid_total = self.client.get_orderbook_totals(sym)
+                ask_total, bid_total = self._orderbook_totals(sym)
                 ok, score = self.strategy.should_enter(
                     ind, float(price), ask_total, bid_total
                 )
@@ -875,7 +910,7 @@ class AutoTrader:
                     self.logger.info("[%s] AI 최종 승인 (확신도 %d%%): %s", sym, ai_decision["confidence"], ai_decision["reason"])
 
                     # v3.2: AI 레이턴시 방어 — 가격 재확인 게이트 (Price Re-check Gate)
-                    fresh_price = self.client.get_last_price(sym)
+                    fresh_price = self._last_price(sym)
                     if fresh_price > 0 and price > 0:
                         slippage_pct = (fresh_price - price) / price * 100
                         if slippage_pct >= 0.3:
@@ -910,6 +945,8 @@ class AutoTrader:
 
     # ── 종료 ──────────────────────────────────────────────────
     def _shutdown(self) -> None:
+        if self.feed is not None:
+            self.feed.stop()
         self.logger.info("=" * 56)
         self.logger.info(" 자동매매 종료")
 
@@ -1021,6 +1058,8 @@ def main() -> None:
     parser.add_argument("--dry-run",  action="store_true", help="주문 없이 신호만 출력")
     parser.add_argument("--once",     action="store_true", help="1회 루프 후 종료")
     parser.add_argument("--config",   default="config.yaml", help="설정 파일 경로")
+    parser.add_argument("--config-override", action="append", default=None,
+                        help="기본 설정 위에 병합할 override YAML (반복 지정 가능, 예: config_optimized.yaml)")
     parser.add_argument("--backtest", metavar="DIR", nargs="?", const="data/candles",
                         help="백테스트 실행 (기본 디렉토리: data/candles)")
     parser.add_argument("--scenarios", action="store_true",
@@ -1034,7 +1073,7 @@ def main() -> None:
     os.chdir(Path(__file__).parent)
     load_dotenv()
 
-    config = load_config(args.config)
+    config = load_config(args.config, args.config_override)
 
     if args.scenarios:
         setup_logger(level="ERROR")

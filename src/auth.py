@@ -64,8 +64,14 @@ class KISAuth:
 
     def _save_cached_token(self, token: str, expires_at: datetime) -> None:
         try:
-            with open(self._cache_file, "w", encoding="utf-8") as f:
+            # 토큰은 자격증명이다 — 캐시 파일을 소유자 전용(0600)으로 만든다.
+            fd = os.open(self._cache_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump({"token": token, "expires_at": expires_at.isoformat()}, f)
+            try:
+                os.chmod(self._cache_file, 0o600)  # 기존 파일이 넓은 권한일 경우까지 교정
+            except OSError:
+                pass
         except Exception as e:
             logger.warning("토큰 캐시 저장 실패: %s", e)
 

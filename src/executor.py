@@ -309,57 +309,28 @@ class Executor:
         """보유 포지션 청산 신호 처리"""
         pos.update_peak(float(current_price))
 
-        # v2.0/v4.0: VWAP 이탈을 '진입 3분 후 봉 종가 확정' 기준으로 판정
-        vwap_breached: Optional[bool] = None
-        n = self.strategy.vwap_confirm_bars
-        if self.strategy.vwap_stop and n > 0:
+        # 진입 후 경과 시간(분) — 실전은 벽시계 기준.
+        # 청산 판정 입력 조립은 StrategyEngine.evaluate_exit() 공통 사용
+        # (백테스트와 동일 로직 — 드리프트 방지).
+        elapsed_min = None
+        if pos.entry_time:
             from datetime import datetime
             now_dt = datetime.now()
-            elapsed_sec = 999.0
-            if pos.entry_time:
-                for fmt in ("%Y-%m-%d %H:%M:%S", "%H:%M:%S"):
-                    try:
-                        e_dt = datetime.strptime(pos.entry_time, fmt)
-                        if fmt == "%H:%M:%S":
-                            n_dt = datetime.strptime(now_dt.strftime("%H:%M:%S"), "%H:%M:%S")
-                            elapsed_sec = (n_dt - e_dt).total_seconds()
-                        else:
-                            elapsed_sec = (now_dt - e_dt).total_seconds()
-                        break
-                    except Exception:
-                        pass
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%H:%M:%S"):
+                try:
+                    e_dt = datetime.strptime(pos.entry_time, fmt)
+                    if fmt == "%H:%M:%S":
+                        n_dt = datetime.strptime(now_dt.strftime("%H:%M:%S"), "%H:%M:%S")
+                        elapsed_min = (n_dt - e_dt).total_seconds() / 60
+                    else:
+                        elapsed_min = (now_dt - e_dt).total_seconds() / 60
+                    break
+                except Exception:
+                    pass
 
-            if elapsed_sec >= 180:  # 진입 3분 경과 후부터 VWAP 이탈 판정
-                vwap_breached = indicators.closed_bars_below_vwap(n)
-            else:
-                vwap_breached = False
-
-        is_rebound = indicators.is_rebound_candle() if indicators else False
-        closed_below_day_low = indicators.closed_bars_below_day_low(1) if indicators else False
-        day_low = indicators.day_low if indicators else None
-        is_panic_dump = indicators.is_panic_dump(float(current_price)) if indicators else False
-        rsi_val = indicators.rsi_value if indicators else None
-        closed_below_support = indicators.closed_bars_below_ma20(1) if indicators else None
-
-        signal, reason = self.strategy.check_exit(
-            entry_price          = pos.entry_price,
-            current_price        = float(current_price),
-            vwap_value           = indicators.vwap.value if indicators else 0.0,
-            tp1_done             = pos.tp1_done,
-            tp2_done             = pos.tp2_done,
-            tp3_armed            = pos.tp3_armed,
-            ma5_value            = indicators.sma_short.value if indicators else None,
-            peak_price           = pos.peak_price,
-            stop_pct             = pos.stop_pct or None,      # v2.0
-            r_unit_pct           = pos.r_unit_pct,            # v2.0
-            vwap_breached        = vwap_breached,             # v2.0
-            day_low              = day_low,                   # 당일 저가
-            is_rebound           = is_rebound,                # 반등봉 여부
-            closed_below_day_low = closed_below_day_low,      # 종가 당일저가 이탈
-            is_market_panic      = is_market_panic,           # 시장 폭락/패닉 여부
-            rsi_value            = rsi_val,                   # RSI 지표
-            is_panic_dump        = is_panic_dump,             # 투매/패닉 급락 감지
-            closed_below_support = closed_below_support,      # 종가 마감 지지선 이탈 확정
+        signal, reason = self.strategy.evaluate_exit(
+            pos, indicators, current_price,
+            elapsed_min=elapsed_min, is_market_panic=is_market_panic,
         )
 
         if signal == SignalType.NONE:

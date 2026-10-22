@@ -407,6 +407,52 @@ class StrategyEngine:
         return False, score
 
     # ── 청산 조건 판단 ────────────────────────────────────────
+    def evaluate_exit(
+        self,
+        pos,
+        ind,
+        current_price: float,
+        *,
+        elapsed_min: Optional[float] = None,
+        is_market_panic: bool = False,
+    ) -> tuple[SignalType, str]:
+        """포지션+지표로부터 청산 판정 입력을 조립해 check_exit()을 호출한다.
+
+        실전(Executor.process_signal)과 백테스트(Backtester)가 같은 조립을
+        각자 구현하면 판정 입력이 갈라져(drift) 백테스트와 실전이 달라진다.
+        그래서 조립은 여기서 한 번만 한다. 호출자는 진입 후 경과 시간(분)만
+        자기 시계 기준으로 계산해 넘긴다 (실전=벽시계, 백테스트=봉 시각).
+        elapsed_min이 None이면 경과 판정을 생략하고 VWAP 이탈을 바로 판정한다.
+        """
+        vwap_breached: Optional[bool] = None
+        n = self.vwap_confirm_bars
+        if self.vwap_stop and n > 0 and ind is not None:
+            if elapsed_min is None or elapsed_min >= 3:
+                vwap_breached = ind.closed_bars_below_vwap(n)
+            else:
+                vwap_breached = False
+
+        return self.check_exit(
+            entry_price          = pos.entry_price,
+            current_price        = float(current_price),
+            vwap_value           = ind.vwap.value if ind is not None else 0.0,
+            tp1_done             = pos.tp1_done,
+            tp2_done             = pos.tp2_done,
+            tp3_armed            = pos.tp3_armed,
+            ma5_value            = ind.sma_short.value if ind is not None else None,
+            peak_price           = pos.peak_price,
+            stop_pct             = pos.stop_pct or None,
+            r_unit_pct           = pos.r_unit_pct,
+            vwap_breached        = vwap_breached,
+            day_low              = ind.day_low if ind is not None else None,
+            is_rebound           = ind.is_rebound_candle() if ind is not None else False,
+            closed_below_day_low = ind.closed_bars_below_day_low(1) if ind is not None else False,
+            is_market_panic      = is_market_panic,
+            rsi_value            = ind.rsi_value if ind is not None else None,
+            is_panic_dump        = ind.is_panic_dump(float(current_price)) if ind is not None else False,
+            closed_below_support = ind.closed_bars_below_ma20(1) if ind is not None else None,
+        )
+
     def check_exit(
         self,
         entry_price: float,

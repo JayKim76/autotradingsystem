@@ -26,6 +26,9 @@ orb:
   candle_minutes: 1
   end_time: 09:30
   start_time: 09:00
+realtime:
+  enabled: true
+  max_age_sec: 10
 polling:
   holding_interval_sec: 1
   max_req_per_sec: 8
