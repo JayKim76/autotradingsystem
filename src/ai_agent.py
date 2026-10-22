@@ -34,6 +34,10 @@ class LocalAIAgent:
         self.temperature = float(ai_cfg.get("temperature", 0.0))
         self.min_confidence = int(ai_cfg.get("min_confidence", 65))
         self.context_trades = int(ai_cfg.get("context_trades", 5))
+        # AI 장애(타임아웃·오류·파싱 실패) 시 진입을 승인할지 여부.
+        # 기본 False = fail-closed (판단 불가면 진입 보류가 안전).
+        # True 로 두면 구동작처럼 규칙 기반 통과로 대체하되, 명시적 선택일 때만 허용.
+        self.fail_open_on_error = bool(ai_cfg.get("fail_open_on_error", False))
 
         # ── 학습 데이터 저장 경로 ──────────────────────────────
         self.data_dir = Path(ai_cfg.get("data_dir", "data/ai"))
@@ -363,11 +367,17 @@ class LocalAIAgent:
             return {"trade": trade, "confidence": confidence, "reason": reason}
 
         except requests.exceptions.Timeout:
-            logger.warning("[AI 판단] %s | 타임아웃 → 규칙 기반 승인으로 대체", symbol)
-            return {"trade": True, "confidence": 50, "reason": "AI 타임아웃 — 규칙 기반 통과"}
+            if self.fail_open_on_error:
+                logger.warning("[AI 판단] %s | 타임아웃 → 규칙 기반 승인으로 대체 (fail_open_on_error 설정)", symbol)
+                return {"trade": True, "confidence": 50, "reason": "AI 타임아웃 — 규칙 기반 통과"}
+            logger.warning("[AI 판단] %s | 타임아웃 → 진입 보류 (fail-closed)", symbol)
+            return {"trade": False, "confidence": 0, "reason": "AI 타임아웃 — 진입 보류"}
         except Exception as e:
-            logger.warning("[AI 판단] %s | 에러(%s) → 규칙 기반 승인으로 대체", symbol, e)
-            return {"trade": True, "confidence": 50, "reason": "AI 에러 — 규칙 기반 통과"}
+            if self.fail_open_on_error:
+                logger.warning("[AI 판단] %s | 에러(%s) → 규칙 기반 승인으로 대체 (fail_open_on_error 설정)", symbol, e)
+                return {"trade": True, "confidence": 50, "reason": "AI 에러 — 규칙 기반 통과"}
+            logger.warning("[AI 판단] %s | 에러(%s) → 진입 보류 (fail-closed)", symbol, e)
+            return {"trade": False, "confidence": 0, "reason": "AI 에러 — 진입 보류"}
 
     def _call_ai_raw(self, system_prompt: str, user_prompt: str, timeout: float = 3.0) -> str:
         payload = {

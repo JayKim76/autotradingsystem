@@ -23,6 +23,7 @@ data/
 scratch/
 *.tmp
 *.txt
+!requirements.txt
 nf_*.json
 trader.pid
 *.bak

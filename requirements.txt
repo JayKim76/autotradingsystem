@@ -1,0 +1,11 @@
+# 자동매매 시스템 실행 의존성
+# 설치: pip install -r requirements.txt
+requests>=2.31        # KIS REST API / 텔레그램 / 로컬 AI(LM Studio) 호출
+PyYAML>=6.0           # config.yaml 로드
+python-dotenv>=1.0    # .env (KIS API 키 등) 로드
+websockets>=12.0      # src/websocket_client.py (KIS 실시간 체결/호가)
+beautifulsoup4>=4.12  # src/news_fetcher.py 네이버 뉴스 수집
+yfinance>=0.2         # src/news_fetcher.py 해외 뉴스 수집
+
+# 테스트 실행용 (실전 운영에는 불필요)
+# pytest>=8.0
