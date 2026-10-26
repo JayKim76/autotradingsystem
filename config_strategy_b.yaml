@@ -1,0 +1,23 @@
+# 전략 B 전용 설정 (전략B설계.md 동결본 — 책의 파라미터)
+# 기본 config.yaml 위에 얹는 override이며, 값은 설계 문서와 일치해야 한다.
+strategy_b:
+  ma_fast: 20
+  ma_slow: 60
+  pullback_volume_max: 0.5
+  avg_volume_days: 20
+  hammer_lower_wick_ratio: 2.0
+  hammer_upper_wick_max: 1.0
+  doji_body_max_ratio: 0.10
+  stop_pct: 5.0
+  high_lookback_days: 60
+  near_high_ratio: 0.95
+  climax_volume_mult: 3.0
+  shooting_star_wick_ratio: 2.0
+  risk_pct: 0.75
+  max_position_pct: 25.0
+  max_positions: 4
+  max_entries_per_day: 2
+  min_avg_value_krw: 5000000000
+  gap_up_limit_pct: 2.0
+  gap_down_limit_pct: 5.0
+  regime_symbol: "069500"
