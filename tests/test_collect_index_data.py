@@ -9,6 +9,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 yield_to_price_series = _mod.yield_to_price_series
 parse_fred_csv = _mod.parse_fred_csv
+parse_fred_observations = _mod.parse_fred_observations
 parse_generic_csv = _mod.parse_generic_csv
 merge_gold_series = _mod.merge_gold_series
 
@@ -33,6 +34,16 @@ def test_parse_fred_csv_skips_missing():
     rows = parse_fred_csv(text)
     assert [r[0] for r in rows] == ["19900102", "19900104"]
     assert rows[0][4] == 402.70
+
+
+def test_parse_fred_observations():
+    payload = {"observations": [
+        {"date": "1990-01-02", "value": "402.70"},
+        {"date": "1990-01-03", "value": "."},
+        {"date": "1990-01-04", "value": "394.20"},
+    ]}
+    rows = parse_fred_observations(payload)
+    assert [r[0] for r in rows] == ["19900102", "19900104"]
 
 
 def test_parse_generic_csv_stooq_format():

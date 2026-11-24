@@ -190,6 +190,45 @@ def collect_fred_gold(out_dir: Path) -> str:
                        "브라우저로 Stooq XAUUSD CSV를 받아 --import-csv를 쓰세요")
 
 
+def collect_fred_gold_api(out_dir: Path, api_key: str) -> str:
+    """FRED 정식 API (api.stlouisfed.org) — fredgraph가 막힐 때의 경로.
+
+    무료 API 키: fred.stlouisfed.org 회원가입 → My Account → API Keys.
+    키는 환경변수 FRED_API_KEY로만 받는다 (파일·깃에 저장 금지).
+    """
+    import requests
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    params = {
+        "series_id": "GOLDAMGBD228NLBM",
+        "api_key": api_key,
+        "file_type": "json",
+        "observation_start": f"{START[:4]}-{START[4:6]}-{START[6:]}",
+        "observation_end": f"{END[:4]}-{END[4:6]}-{END[6:]}",
+        "limit": 100000,
+    }
+    r = requests.get(url, params=params, timeout=60,
+                     headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    rows = parse_fred_observations(r.json())
+    path, n = save_series(out_dir, "132030", rows)
+    span = f"{rows[0][0]}~{rows[-1][0]}" if rows else "-"
+    return f"132030 (FRED API LBMA 금): {n}행 {span} → {path}"
+
+
+def parse_fred_observations(payload: dict) -> list[tuple[str, float, float, float, float]]:
+    """FRED API observations JSON → 로더 행. 결측(.)은 건너뜀."""
+    rows = []
+    for obs in payload.get("observations", []):
+        try:
+            v = float(obs["value"])
+        except (KeyError, ValueError):
+            continue
+        d = str(obs.get("date", "")).replace("-", "")
+        if len(d) == 8:
+            rows.append((d, v, v, v, v))
+    return sorted(rows)
+
+
 def parse_fred_csv(text: str) -> list[tuple[str, float, float, float, float]]:
     """fredgraph CSV (DATE,VALUE) → 로더 행. 결측(.)은 건너뜀."""
     rows = []
@@ -291,7 +330,11 @@ def main() -> int:
             elif symbol == "182490":
                 print(collect_eastmoney_csi300(out_dir))
             elif symbol == "132030" and args.gold_source == "fred":
-                print(collect_fred_gold(out_dir))
+                api_key = os.getenv("FRED_API_KEY", "")
+                if api_key:
+                    print(collect_fred_gold_api(out_dir, api_key))
+                else:
+                    print(collect_fred_gold(out_dir))
             elif symbol in YAHOO_MAP:
                 print(collect_yahoo_symbol(symbol, out_dir))
             else:
