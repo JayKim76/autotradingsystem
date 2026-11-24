@@ -162,26 +162,76 @@ def collect_krx_kospi200(out_dir: Path) -> str:
 
 
 def collect_fred_gold(out_dir: Path) -> str:
-    """FRED GOLDAMGBD228NLBM (LBMA 금 AM fix, USD/oz) — 금 1990년대 보완용."""
+    """FRED GOLDAMGBD228NLBM (LBMA 금 AM fix, USD/oz) — 금 1990년대 보완용.
+
+    FRED가 연결을 끊는 경우가 있어 3회 재시도한다. 그래도 실패하면
+    브라우저로 받은 CSV를 --import-csv 로 넣는 경로를 쓴다.
+    """
     import requests
     url = ("https://fred.stlouisfed.org/graph/fredgraph.csv"
            f"?id=GOLDAMGBD228NLBM&cosd={START[:4]}-{START[4:6]}-{START[6:]}"
            f"&coed={END[:4]}-{END[4:6]}-{END[6:]}")
-    r = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"})
-    r.raise_for_status()
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=60, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                "Accept": "text/csv,*/*",
+            })
+            r.raise_for_status()
+            rows = parse_fred_csv(r.text)
+            path, n = save_series(out_dir, "132030", rows)
+            span = f"{rows[0][0]}~{rows[-1][0]}" if rows else "-"
+            return f"132030 (FRED LBMA 금): {n}행 {span} → {path}"
+        except Exception as e:  # noqa: BLE001 - 재시도 목적
+            last_err = e
+            time.sleep(5)
+    raise RuntimeError(f"FRED 금 수집 3회 실패 ({last_err}) — "
+                       "브라우저로 Stooq XAUUSD CSV를 받아 --import-csv를 쓰세요")
+
+
+def parse_fred_csv(text: str) -> list[tuple[str, float, float, float, float]]:
+    """fredgraph CSV (DATE,VALUE) → 로더 행. 결측(.)은 건너뜀."""
     rows = []
-    for line in r.text.strip().splitlines()[1:]:
+    for line in text.strip().splitlines()[1:]:
         date_str, _, val = line.partition(",")
         try:
             v = float(val)
         except ValueError:
             continue
-        d = date_str.replace("-", "")
-        rows.append((d, v, v, v, v))
-    rows.sort()
-    path, n = save_series(out_dir, "132030", rows)
-    span = f"{rows[0][0]}~{rows[-1][0]}" if rows else "-"
-    return f"132030 (FRED LBMA 금): {n}행 {span} → {path}"
+        rows.append((date_str.replace("-", ""), v, v, v, v))
+    return sorted(rows)
+
+
+def parse_generic_csv(text: str) -> list[tuple[str, float, float, float, float]]:
+    """Date,Open,High,Low,Close 형식 CSV (Stooq 등) → 로더 행."""
+    import io
+    rows = []
+    for row in csv.DictReader(io.StringIO(text)):
+        try:
+            d = (row.get("Date") or row.get("date") or "").replace("-", "")
+            o = float(row.get("Open") or row.get("open"))
+            h = float(row.get("High") or row.get("high"))
+            l = float(row.get("Low") or row.get("low"))
+            c = float(row.get("Close") or row.get("close"))
+        except (TypeError, ValueError):
+            continue
+        if len(d) == 8:
+            rows.append((d, o, h, l, c))
+    return sorted(rows)
+
+
+def merge_gold_series(early: list, late: list) -> list:
+    """금 병합: late의 첫 날짜 전날까지는 early(LBMA 현물), 이후는 late(선물).
+
+    둘 다 USD/oz 금 가격이라 수준이 호환된다 (선물 베이시스 차이는 감수,
+    지수데이터출처.md에 기록).
+    """
+    if not late:
+        return sorted(early)
+    cutoff = late[0][0]
+    merged = [r for r in early if r[0] < cutoff] + list(late)
+    return sorted(merged)
 
 
 def main() -> int:
@@ -190,10 +240,46 @@ def main() -> int:
     p.add_argument("--out-dir", default="data/index_daily")
     p.add_argument("--gold-source", choices=["yahoo", "fred"], default="yahoo",
                    help="금(132030) 소스: yahoo=GC=F(2000~), fred=LBMA(1990~)")
+    p.add_argument("--import-csv", help="브라우저로 받은 CSV 파일 경로 (Stooq 등)")
+    p.add_argument("--import-symbol", default="132030",
+                   help="임포트할 ETF 코드 (기본 132030 금)")
+    p.add_argument("--merge-gold", action="store_true",
+                   help="data/index_daily_fred/132030.csv(현물)와 data/index_daily/132030.csv(선물)를 병합")
     args = p.parse_args()
 
     from src.config_loader import resolve_repo_path
     out_dir = Path(resolve_repo_path(args.out_dir))
+
+    if args.import_csv:
+        text = Path(args.import_csv).read_text(encoding="utf-8-sig")
+        rows = parse_generic_csv(text)
+        if not rows:  # FRED 형식일 수도 있다
+            rows = parse_fred_csv(text)
+        rows = [r for r in rows if START <= r[0] <= END]
+        path, n = save_series(out_dir, args.import_symbol, rows)
+        span = f"{rows[0][0]}~{rows[-1][0]}" if rows else "-"
+        print(f"{args.import_symbol} (CSV 임포트): {n}행 {span} → {path}")
+        return 0 if rows else 1
+
+    if args.merge_gold:
+        main_dir = Path(resolve_repo_path("data/index_daily"))
+        early_path = Path(resolve_repo_path("data/index_daily_fred")) / "132030.csv"
+        late_path = main_dir / "132030.csv"
+        if not early_path.exists() or not late_path.exists():
+            print(f"병합 불가: {early_path} 또는 {late_path}가 없습니다")
+            return 1
+
+        def _load(path):
+            with open(path, encoding="utf-8-sig") as f:
+                return sorted(
+                    (r["date"].replace("-", ""), float(r["open"]), float(r["high"]),
+                     float(r["low"]), float(r["close"]))
+                    for r in csv.DictReader(f))
+
+        merged = merge_gold_series(_load(early_path), _load(late_path))
+        path, n = save_series(main_dir, "132030", merged)
+        print(f"132030 (금 병합): {n}행 {merged[0][0]}~{merged[-1][0]} → {path}")
+        return 0
 
     targets = ([s.strip() for s in args.only.split(",")] if args.only
                else list(YAHOO_MAP.keys()))
