@@ -1,0 +1,9 @@
+# ETF 듀얼모멘텀 설정 (사전등록-ETF듀얼모멘텀.md 동결값 — 검증 후 변경 금지)
+# 비용은 config.yaml이 아니라 여기의 cost_pct_oneway를 쓴다 (개별주 비용 모델과 분리).
+etf_momentum:
+  risk_symbols: ["069500", "360750", "379800", "182490", "132030"]
+  defensive_symbol: "153130"
+  lookback_days: 252
+  top_n: 2
+  cost_pct_oneway: 0.05
+  vol_window_days: 60
