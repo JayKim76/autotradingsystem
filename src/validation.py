@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 from dataclasses import dataclass, field
+from statistics import NormalDist
 from typing import Optional
 
 from .backtest import BTTrade, MultiDayBacktester
@@ -45,6 +47,62 @@ DEFAULT_GRID: list[dict] = [
     {"strategy": {"min_score": 4}, "take_profit": {"tp1_r": 1.2}},
     {"strategy": {"min_score": 5}, "take_profit": {"tp1_r": 2.0, "tp2_r": 3.5}},
 ]
+
+
+# ──────────────────────────────────────────────
+#  Deflated Sharpe Ratio (Bailey & López de Prado, 2014)
+#
+#  전략을 여러 개 시험할수록, 운으로 좋아 보이는 전략이 나올 확률이
+#  커진다. DSR은 "시험 횟수(n_trials)를 감안해도 이 Sharpe가 0보다
+#  크다고 믿을 확률"을 0~1로 돌려준다. 게이트 항목은 아니고 병기용 —
+#  PASS여도 DSR이 낮으면(예: <0.9) 운일 가능성을 의심한다.
+#
+#  근사: 시험별 SR의 분산 V를 알 수 없어, SR 추정량의 분산
+#  (1 - skew·SR + (kurt-1)/4·SR²) / (T-1) 로 대체한다.
+#  시험한 전략 수는 데이터사용대장.md 기준 — 새 전략을 시험할 때마다
+#  n_trials를 올려서 호출할 것.
+# ──────────────────────────────────────────────
+DEFAULT_N_TRIALS = 7  # 2026-11-24 기준 시험한 가설 수 (데이터사용대장.md)
+_EULER_GAMMA = 0.5772156649015329
+_NORM = NormalDist()
+
+
+def _sharpe_and_moments(rs: list[float]) -> tuple[float, float, float]:
+    """거래 R 수익률 → (거래당 Sharpe, 왜도, 첨도[비초과])"""
+    n = len(rs)
+    if n < 2:
+        return 0.0, 0.0, 3.0
+    mean = sum(rs) / n
+    var = sum((r - mean) ** 2 for r in rs) / (n - 1)
+    std = math.sqrt(var)
+    if std <= 0:
+        return 0.0, 0.0, 3.0
+    skew = sum(((r - mean) / std) ** 3 for r in rs) / n
+    kurt = sum(((r - mean) / std) ** 4 for r in rs) / n
+    return mean / std, skew, kurt
+
+
+def deflated_sharpe_ratio(rs: list[float], n_trials: int = DEFAULT_N_TRIALS) -> float:
+    """거래 R 목록 → Deflated Sharpe (0~1). 표본<3 또는 분산 0이면 0."""
+    t = len(rs)
+    if t < 3:
+        return 0.0
+    sr, skew, kurt = _sharpe_and_moments(rs)
+    if sr == 0.0:
+        return 0.0
+    denom_var = 1.0 - skew * sr + ((kurt - 1.0) / 4.0) * sr * sr
+    if denom_var <= 0:
+        return 0.0
+    if n_trials and n_trials > 1:
+        v = denom_var / (t - 1)  # SR 추정량 분산 근사
+        sr0 = math.sqrt(v) * (
+            (1.0 - _EULER_GAMMA) * _NORM.inv_cdf(1.0 - 1.0 / n_trials)
+            + _EULER_GAMMA * _NORM.inv_cdf(1.0 - 1.0 / (n_trials * math.e))
+        )
+    else:
+        sr0 = 0.0
+    z = (sr - sr0) * math.sqrt(t - 1) / math.sqrt(denom_var)
+    return min(1.0, max(0.0, _NORM.cdf(z)))
 
 
 def _combo_name(override: dict) -> str:
@@ -75,9 +133,11 @@ def trade_r(trade: BTTrade, fallback_r_pct: float) -> float:
     return trade.net / risk_amount
 
 
-def compute_metrics(trades: list[BTTrade], fallback_r_pct: float) -> dict:
-    """거래 목록 → 검증 지표 dict"""
+def compute_metrics(trades: list[BTTrade], fallback_r_pct: float,
+                    n_trials: int = DEFAULT_N_TRIALS) -> dict:
+    """거래 목록 → 검증 지표 dict (n_trials: DSR 계산용 누적 시험 전략 수)"""
     rs = [trade_r(t, fallback_r_pct) for t in trades]
+    sharpe_r, _, _ = _sharpe_and_moments(rs)
     wins = [t for t in trades if t.net > 0]
     losses = [t for t in trades if t.net <= 0]
     gain = sum(t.net for t in wins)
@@ -123,6 +183,8 @@ def compute_metrics(trades: list[BTTrade], fallback_r_pct: float) -> dict:
         "profit_factor": (gain / loss) if loss > 0 else (float("inf") if gain > 0 else 0.0),
         "expectancy_krw": (sum(t.net for t in trades) / n) if n else 0.0,
         "expectancy_r": (sum(rs) / n) if n else 0.0,
+        "sharpe_r": sharpe_r,
+        "deflated_sharpe": deflated_sharpe_ratio(rs, n_trials),
         "avg_win_r": (sum(r for r, t in zip(rs, trades) if t.net > 0) / len(wins)) if wins else 0.0,
         "avg_loss_r": (sum(r for r, t in zip(rs, trades) if t.net <= 0) / len(losses)) if losses else 0.0,
         "best_r": max(rs) if rs else 0.0,
@@ -318,6 +380,8 @@ def render_report(result: dict, v: dict, data_dir: str = "") -> str:
         "",
         f"- 거래 {m['trades']}회 · 승률 {m['win_rate']:.1f}% · PF {m['profit_factor']:.2f}",
         f"- 기대값 {m['expectancy_r']:+.3f}R/거래 ({m['expectancy_krw']:+,.0f}원/거래)",
+        f"- 거래당 Sharpe {m.get('sharpe_r', 0.0):+.3f} · Deflated Sharpe "
+        f"{m.get('deflated_sharpe', 0.0):.3f} (다중 검정 보정 확률, 게이트 아님)",
         f"- 평균 이익 {m['avg_win_r']:+.2f}R · 평균 손실 {m['avg_loss_r']:+.2f}R · "
         f"최대 연속손실 {m['max_consecutive_losses']}회",
         f"- 최대 낙폭 {m['max_drawdown_pct']:.2f}% · 총 비용 {m['total_cost']:,.0f}원",

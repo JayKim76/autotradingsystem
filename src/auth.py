@@ -27,6 +27,10 @@ class KISAuth:
     def __init__(self) -> None:
         self.mode: str = os.getenv("TRADE_MODE", "paper").lower()
 
+        # Phase 0 실전 잠금 — real 모드는 해제 조건 충족 전에는 시작 자체를 막는다.
+        from .live_guard import assert_live_trading_allowed
+        assert_live_trading_allowed(self.mode)
+
         if self.mode == "real":
             self.app_key    = os.environ["KIS_REAL_APP_KEY"]
             self.app_secret = os.environ["KIS_REAL_APP_SECRET"]

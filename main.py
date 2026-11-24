@@ -1101,6 +1101,10 @@ def main() -> None:
 
     try:
         trader = AutoTrader(config, dry_run=args.dry_run)
+    except RuntimeError as e:
+        # Phase 0 실전 잠금 (src/live_guard.py) 등 시작 자체를 막아야 하는 경우
+        print(f"\n실행 차단: {e}\n")
+        sys.exit(2)
     except KeyError as e:
         print(f"\n환경변수 누락: {e}")
         print(".env 파일을 확인하세요 (cp .env.example .env)\n")

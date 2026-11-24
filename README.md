@@ -42,6 +42,11 @@ python -m pytest tests/ -q
 
 ## 주의
 
+- **Phase 0 실전 잠금 (2026-11-24~)**: 검증 게이트를 통과한 전략이 아직 없어
+  `TRADE_MODE=real` 실행은 `src/live_guard.py`가 시작 단계에서 차단한다.
+  해제는 게이트 PASS + paper 전진 검증 30건 + 사전등록 문서 + 사용자 명시
+  결정이 모두 갖춰진 뒤 `.env`의 `LIVE_TRADING_ENABLED=1`로만 한다.
+  전략 사전등록은 `사전등록양식.md`, 데이터 사용 이력은 `데이터사용대장.md` 참조.
 - 휴장일 표는 `src/utils.py`의 `KRX_HOLIDAYS_BY_YEAR`에서 연도별로 관리한다.
   표에 없는 연도를 조회하면 경고 로그가 남는다 — 매년 말 다음 해 표를 추가할 것.
 - 모의투자(paper)로 충분히 검증한 뒤 실전(real) 전환을 권장한다.
