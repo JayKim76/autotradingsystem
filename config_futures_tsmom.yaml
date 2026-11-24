@@ -1,0 +1,8 @@
+# KOSPI200 선물 TSMOM 설정 (사전등록-선물TSMOM.md 동결값 — 검증 후 변경 금지)
+futures_tsmom:
+  symbol: "KOSPI200F"
+  lookback_days: 252
+  target_vol_annual: 0.10
+  vol_window_days: 60
+  max_leverage: 2.0
+  cost_pct_oneway: 0.01
