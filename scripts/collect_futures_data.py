@@ -125,11 +125,17 @@ def _load_contract_dir(folder: Path) -> dict[str, list[dict]]:
     for path in sorted(folder.glob("*.csv")):
         expiry = _expiry_from_filename(path.stem) or path.stem
         bars = []
-        with open(path, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                bar = _parse_bar(row)
-                if bar:
-                    bars.append(bar)
+        # KRX 포털 CSV는 CP949 인코딩인 경우가 많다 — UTF-8 실패 시 CP949로 재시도
+        raw = path.read_bytes()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("cp949")
+        import io
+        for row in csv.DictReader(io.StringIO(text)):
+            bar = _parse_bar(row)
+            if bar:
+                bars.append(bar)
         if bars:
             # 같은 만기 파일이 여러 개면(기간 나눠 받기) 날짜 기준 병합
             merged = {b["date"]: b for b in contracts.get(expiry, [])}

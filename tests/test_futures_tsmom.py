@@ -108,6 +108,15 @@ def test_parse_krx_portal_row():
     assert parse_bar(night) is None
 
 
+def test_load_contract_dir_cp949(tmp_path):
+    """KRX 포털 CSV(CP949 인코딩)도 읽어야 한다"""
+    content = "일자,시가,고가,저가,종가,거래량\n2012/12/13,261.95,265.30,261.80,264.90,\"26,499\"\n"
+    (tmp_path / "201212.csv").write_bytes(content.encode("cp949"))
+    contracts = _mod._load_contract_dir(tmp_path)
+    assert contracts["201212"][0]["close"] == 264.90
+    assert contracts["201212"][0]["date"] == "20121213"
+
+
 def test_stitch_removes_roll_gap():
     """롤오버일의 가격 점프(100→102)가 수익률에 새지 않아야 한다"""
     def bar(d, c):
