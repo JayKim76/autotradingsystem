@@ -80,16 +80,28 @@ def _num(value) -> float:
 
 
 def _parse_bar(row: dict) -> dict | None:
-    """영문/한글(KRX 포털) 헤더 모두 지원. KRX CSV는 날짜 2012/12/28, 숫자 콤마 포함."""
+    """영문/한글(KRX 포털) 헤더 모두 지원.
+
+    KRX 포털 특이사항: 시장구분 '전체'로 받으면 날짜 셀에 (주간)/(야간)이 붙고
+    같은 날짜가 두 번 나온다. 야간 행은 버리고 정규(주간) 행만 쓴다.
+    날짜는 셀에서 YYYYMMDD 8자리를 추출한다.
+    """
+    import re
     norm = {}
     for k, v in row.items():
         if k is None:
             continue
         key = _KR_HEADERS.get(k.strip(), k.strip().lower())
         norm[key] = v
+    raw_date = str(norm.get("date") or "")
+    if "야간" in raw_date:
+        return None
+    m = re.search(r"(19|20)\d{6}", raw_date.replace("/", "").replace("-", ""))
+    if not m:
+        return None
     try:
         return {
-            "date": str(norm["date"]).replace("-", "").replace("/", ""),
+            "date": m.group(0),
             "open": _num(norm["open"]), "high": _num(norm["high"]),
             "low": _num(norm["low"]), "close": _num(norm["close"]),
             "volume": int(_num(norm.get("volume") or 0)),
@@ -119,7 +131,10 @@ def _load_contract_dir(folder: Path) -> dict[str, list[dict]]:
                 if bar:
                     bars.append(bar)
         if bars:
-            contracts[expiry] = sorted(bars, key=lambda b: b["date"])
+            # 같은 만기 파일이 여러 개면(기간 나눠 받기) 날짜 기준 병합
+            merged = {b["date"]: b for b in contracts.get(expiry, [])}
+            merged.update({b["date"]: b for b in bars})
+            contracts[expiry] = sorted(merged.values(), key=lambda b: b["date"])
     return contracts
 
 

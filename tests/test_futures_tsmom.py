@@ -101,6 +101,11 @@ def test_parse_krx_portal_row():
                    "low": 259.50, "close": 260.90, "volume": 1234}
     assert _mod._expiry_from_filename("코스피200선물_201212") == "201212"
     assert _mod._expiry_from_filename("201212") == "201212"
+    # 시장구분 전체 다운로드: (주간) 행은 날짜를 뽑고 (야간) 행은 버린다
+    day = dict(row, 일자="2012/12/12 (주간)")
+    night = dict(row, 일자="2012/12/12 (야간)")
+    assert parse_bar(day)["date"] == "20121212"
+    assert parse_bar(night) is None
 
 
 def test_stitch_removes_roll_gap():
