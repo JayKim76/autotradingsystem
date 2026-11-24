@@ -71,22 +71,53 @@ def stitch_continuous(contracts: dict[str, list[dict]]) -> list[dict]:
     return out
 
 
+_KR_HEADERS = {"일자": "date", "시가": "open", "고가": "high", "저가": "low",
+               "종가": "close", "거래량": "volume"}
+
+
+def _num(value) -> float:
+    return float(str(value).replace(",", "").replace('"', "").strip())
+
+
+def _parse_bar(row: dict) -> dict | None:
+    """영문/한글(KRX 포털) 헤더 모두 지원. KRX CSV는 날짜 2012/12/28, 숫자 콤마 포함."""
+    norm = {}
+    for k, v in row.items():
+        if k is None:
+            continue
+        key = _KR_HEADERS.get(k.strip(), k.strip().lower())
+        norm[key] = v
+    try:
+        return {
+            "date": str(norm["date"]).replace("-", "").replace("/", ""),
+            "open": _num(norm["open"]), "high": _num(norm["high"]),
+            "low": _num(norm["low"]), "close": _num(norm["close"]),
+            "volume": int(_num(norm.get("volume") or 0)),
+        }
+    except (KeyError, ValueError):
+        return None
+
+
+def _expiry_from_filename(stem: str) -> str | None:
+    """파일명에서 만기 YYYYMM 추출 (예: 201212, 코스피200선물_201212)."""
+    import re
+    for m in re.finditer(r"(19|20)\d{4}", stem):
+        cand = m.group(0)
+        if 1 <= int(cand[4:6]) <= 12:
+            return cand
+    return None
+
+
 def _load_contract_dir(folder: Path) -> dict[str, list[dict]]:
     contracts: dict[str, list[dict]] = {}
     for path in sorted(folder.glob("*.csv")):
-        expiry = path.stem
+        expiry = _expiry_from_filename(path.stem) or path.stem
         bars = []
         with open(path, encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
-                try:
-                    bars.append({
-                        "date": str(row["date"]).replace("-", ""),
-                        "open": float(row["open"]), "high": float(row["high"]),
-                        "low": float(row["low"]), "close": float(row["close"]),
-                        "volume": int(float(row.get("volume") or 0)),
-                    })
-                except (KeyError, ValueError):
-                    continue
+                bar = _parse_bar(row)
+                if bar:
+                    bars.append(bar)
         if bars:
             contracts[expiry] = sorted(bars, key=lambda b: b["date"])
     return contracts

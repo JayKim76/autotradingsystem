@@ -92,6 +92,17 @@ def test_walk_forward_smoke():
     assert verdict(result["oos_metrics"])["status"] in ("PASS", "FAIL", "INSUFFICIENT")
 
 
+def test_parse_krx_portal_row():
+    parse_bar = _mod._parse_bar
+    row = {"일자": "2012/12/28", "시가": "260.10", "고가": "261.00",
+           "저가": "259.50", "종가": "260.90", "거래량": "1,234"}
+    bar = parse_bar(row)
+    assert bar == {"date": "20121228", "open": 260.10, "high": 261.00,
+                   "low": 259.50, "close": 260.90, "volume": 1234}
+    assert _mod._expiry_from_filename("코스피200선물_201212") == "201212"
+    assert _mod._expiry_from_filename("201212") == "201212"
+
+
 def test_stitch_removes_roll_gap():
     """롤오버일의 가격 점프(100→102)가 수익률에 새지 않아야 한다"""
     def bar(d, c):
